@@ -5,7 +5,12 @@
       "name": "ROOT"
     },
     {
-      "path": "projects/timestones"
+      "path": "projects/timestones-contract",
+      "name": "timestones-contract"
+    },
+    {
+      "path": "projects/timestones-frontend",
+      "name": "timestones-frontend"
     }
   ],
   "settings": {
