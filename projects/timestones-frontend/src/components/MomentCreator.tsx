@@ -9,6 +9,17 @@ import { pinFileToIPFS, pinJSONToIPFS } from './utils/pinata';
 import { getAlgorandClient } from './utils/setupClients';
 import { useWallet } from '@txnlab/use-wallet-react';
 
+interface IPFSData {
+  name: string;
+  standard: 'arc3';
+  image: string;
+  image_mime_type: string;
+  description: string;
+  properties: {
+    assetType: 'timestone-moments';
+  };
+}
+
 interface MomentCreatorProps {
   activeAddress: string | null;
 }
@@ -24,22 +35,8 @@ export function MomentCreator({ activeAddress }: MomentCreatorProps) {
   const { transactionSigner } = useWallet();
 
   const today = new Date();
-  const formattedDate = today.toLocaleDateString('en-CA');
-  const DateWithoutDashes = formattedDate.replace(/-/g, '').substring(2);
-
-  const imageToArc3 = async (file: File): Promise<string> => {
-    const ipfsHash = await pinFileToIPFS(file);
-    const metadataRoot = await pinJSONToIPFS(
-      `${formattedDate}`,
-      `dia${formattedDate}`,
-      String(ipfsHash),
-      file,
-      description
-    );
-
-    console.log(metadataRoot);
-    return String(metadataRoot);
-  };
+  const formattedDate = today.toISOString();
+  const DateWithoutDashes = formattedDate.replace(/[-:T.Z]/g, '').substring(2, 8);
 
   const algorandClient = getAlgorandClient();
 
@@ -55,7 +52,7 @@ export function MomentCreator({ activeAddress }: MomentCreatorProps) {
       setLoading(false);
       return;
     }
-    console.log('algornad client: ', algorandClient);
+    console.log('algorand client: ', algorandClient);
 
     algorandClient.account.setDefaultSigner(transactionSigner);
 
@@ -65,24 +62,44 @@ export function MomentCreator({ activeAddress }: MomentCreatorProps) {
       return;
     }
 
-    const metadataRoot = await imageToArc3(nftImage).catch((e: Error) => {
+    let metadataRootString: string;
+
+    try {
+      const ipfsHash = await pinFileToIPFS(nftImage);
+      console.log('ipfsHash: ', ipfsHash);
+
+      const ipfs_data: IPFSData = {
+        name: `${formattedDate}`,
+        standard: 'arc3',
+        image: String(ipfsHash),
+        image_mime_type: nftImage.type,
+        description: description,
+        properties: {
+          assetType: 'timestone-moments',
+        },
+      };
+
+      const metadataRoot = await pinJSONToIPFS(ipfs_data);
+
+      console.log(metadataRoot);
+      metadataRootString = String(metadataRoot);
+    } catch (e: any) {
       enqueueSnackbar(`Error during image upload to IPFS: ${e.message}`, { variant: 'error' });
       setLoading(false);
       return;
-    });
+    }
 
-    console.log('metadataRoot: ', metadataRoot);
-    console.log(DateWithoutDashes);
+    console.log('metadataRoot: ', metadataRootString);
+    console.log('formattedDate: ', formattedDate);
+    console.log('DateWithoutDashes: ', DateWithoutDashes);
 
     try {
       const result = await algorandClient.send.assetCreate({
         sender: activeAddress,
-        defaultFrozen: false,
+        defaultFrozen: true,
         assetName: `${formattedDate}`,
         unitName: `pd${DateWithoutDashes}`,
-        manager: activeAddress,
-        reserve: activeAddress,
-        url: `ipfs://${metadataRoot}/#arc3`,
+        url: `ipfs://${metadataRootString}/#arc3`,
         total: 1n,
         decimals: 0,
       });

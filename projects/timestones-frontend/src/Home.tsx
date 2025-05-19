@@ -93,7 +93,7 @@ function Homepage() {
           <div className="container mx-auto px-4 py-8">
             <Routes>
               <Route path="/" element={<Index activeAddress={activeAddress} />} />
-              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/dashboard" element={<Dashboard activeAddress={activeAddress} />} />
             </Routes>
           </div>
         </main>

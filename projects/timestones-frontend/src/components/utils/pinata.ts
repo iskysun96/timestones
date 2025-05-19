@@ -29,22 +29,21 @@ export async function pinFileToIPFS(file: File): Promise<string | undefined> {
   }
 }
 
-export async function pinJSONToIPFS(
-  name: string,
-  unitName: string,
-  ipfsHash: string,
-  file: File,
-  description: string
-): Promise<string | undefined> {
+interface IPFSData {
+  name: string;
+  standard: 'arc3';
+  image: string;
+  image_mime_type: string;
+  description: string;
+  properties: {
+    assetType: 'timestone-moments';
+  };
+}
+
+export async function pinJSONToIPFS(ipfsData: IPFSData): Promise<string | undefined> {
   const data = JSON.stringify({
     pinataContent: {
-      decimals: 0,
-      name: name,
-      description: description,
-      unitName: unitName,
-      image: `ipfs://${ipfsHash}`,
-      image_mimetype: file.type,
-      properties: {},
+      ...ipfsData,
     },
     pinataMetadata: {
       name: 'metadata.json',

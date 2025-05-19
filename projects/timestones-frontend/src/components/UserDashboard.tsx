@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Calendar } from '@/components/ui/calendar';
 import { format } from 'date-fns';
@@ -6,10 +6,17 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { CalendarIcon } from 'lucide-react';
+import { getAlgorandClient } from './utils/setupClients';
+import { useWallet } from '@txnlab/use-wallet-react';
+import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 
 interface UserDashboardProps {
   view: 'grid' | 'calendar';
+  activeAddress: string | null;
 }
+
+const PD = 'pd';
 
 // Mock data with more posts and specific timestamps
 const moments = [
@@ -45,9 +52,24 @@ const moments = [
   },
 ];
 
-export function UserDashboard({ view }: UserDashboardProps) {
+type DiaryAsset = {
+  assetId: number;
+  url: string;
+  assetName: string;
+  unitName: string;
+  description: string;
+  assetType: string;
+  date: Date;
+};
+
+export function UserDashboard({ view, activeAddress }: UserDashboardProps) {
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [selectedMoment, setSelectedMoment] = useState<(typeof moments)[0] | null>(null);
+  const [diaryAssets, setDiaryAssets] = useState<DiaryAsset[]>([]);
+  const navigate = useNavigate();
+
+  const wallet = useWallet();
+  const algorandClient = getAlgorandClient();
 
   const momentDates = moments.map(moment => format(moment.date, 'yyyy-MM-dd'));
 
@@ -64,6 +86,120 @@ export function UserDashboard({ view }: UserDashboardProps) {
   const disabledDays = (date: Date) => {
     return !momentDates.includes(format(date, 'yyyy-MM-dd'));
   };
+
+  // Cleanup function to remove cached data
+  const cleanupCachedData = (address: string) => {
+    sessionStorage.removeItem(`hasFetched_${address}`);
+    sessionStorage.removeItem(`diaryAssets_${address}`);
+  };
+
+  // Handle wallet disconnection
+  useEffect(() => {
+    console.log('wallet.activeAddress: ', wallet.activeAddress);
+    console.log('activeAddress: ', activeAddress);
+
+    if (!wallet.activeAddress) {
+      console.log('wallet disconnected');
+      // Clean up any existing data
+      if (activeAddress) {
+        cleanupCachedData(activeAddress);
+      }
+      navigate('/');
+    }
+  }, [wallet.activeAddress, activeAddress, navigate]);
+
+  // ================================ Blockchain Functions ================================
+
+  //get Image Url from metadata Url uploaded on IPFS
+  const getIpfsUrlAndDescriptionAndAssetType = async (url: string) => {
+    const slicedUrl = url.slice(7, url.length + 1);
+    const response = await axios.get(`https://ipfs.algonode.xyz/ipfs/${slicedUrl}`);
+    let responseImage: string;
+    if (response.data.image.startsWith('ipfs://')) {
+      responseImage = response.data.image.slice(7, url.length + 1);
+    } else {
+      responseImage = response.data.image;
+    }
+    return {
+      image: `https://ipfs.algonode.xyz/ipfs/${responseImage}`,
+      description: response.data.description,
+      assetType: response.data.properties.assetType,
+    };
+  };
+
+  const fetchAssetUnitNames = async () => {
+    if (activeAddress) {
+      try {
+        const balances = (await algorandClient.account.getInformation(activeAddress)).assets!;
+        console.log('balances: ', balances);
+        const diaryAssets: DiaryAsset[] = [];
+
+        for (const balance of balances) {
+          const assetInfo = await algorandClient.asset.getById(balance.assetId);
+          console.log('assetInfo: ', assetInfo);
+          if (assetInfo.unitName === undefined || assetInfo.url === 'ipfs://undefined/#arc3') {
+            continue;
+          }
+
+          if (assetInfo.unitName.startsWith(PD)) {
+            const ipfsUrl = await getIpfsUrlAndDescriptionAndAssetType(assetInfo.url!);
+            const assetWithDescription: DiaryAsset = {
+              assetId: Number(assetInfo.assetId),
+              url: ipfsUrl.image,
+              assetName: assetInfo.assetName || '',
+              unitName: assetInfo.unitName || '',
+              description: ipfsUrl.description,
+              assetType: ipfsUrl.assetType,
+              date: new Date(assetInfo.assetName || ''),
+            };
+            console.log('assetWithDescription: ', assetWithDescription);
+            diaryAssets.push(assetWithDescription);
+          }
+        }
+        console.log('diaryAssets: ', diaryAssets);
+        return diaryAssets;
+      } catch (error) {
+        console.error('Error fetching asset balances:', error);
+        return;
+      }
+    }
+    return;
+  };
+
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!wallet || !wallet.activeAddress) return;
+
+      // Check if we've already fetched data for this address
+      const hasFetched = sessionStorage.getItem(`hasFetched_${wallet.activeAddress}`);
+      const cachedData = sessionStorage.getItem(`diaryAssets_${wallet.activeAddress}`);
+
+      console.log('hasFetched: ', hasFetched);
+      console.log('cachedData: ', cachedData);
+
+      if (!hasFetched) {
+        console.log('Fetching data for the first time');
+        try {
+          const assets = await fetchAssetUnitNames();
+          if (assets === undefined) {
+            return;
+          }
+          console.log(assets);
+          setDiaryAssets(assets);
+          // Store both the fetch state and the data
+          sessionStorage.setItem(`hasFetched_${wallet.activeAddress}`, 'true');
+          sessionStorage.setItem(`diaryAssets_${wallet.activeAddress}`, JSON.stringify(assets));
+        } catch (error) {
+          console.error('Error fetching assets:', error);
+        }
+      } else if (cachedData) {
+        console.log('Data already fetched, using cached data');
+        setDiaryAssets(JSON.parse(cachedData));
+      }
+    };
+
+    fetchData();
+  }, [activeAddress]);
 
   if (view === 'calendar') {
     return (
@@ -143,12 +279,22 @@ export function UserDashboard({ view }: UserDashboardProps) {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      {moments.map(moment => (
-        <Card key={moment.id} className="bg-card/50 shadow-none border-0 overflow-hidden">
-          <img src={moment.image} alt={moment.note} className="w-full h-48 object-cover" />
+      {diaryAssets.map(moment => (
+        <Card key={moment.assetId} className="bg-card/50 shadow-none border-0 overflow-hidden">
+          <img src={moment.url} alt={moment.unitName} className="w-full h-48 object-cover" />
           <div className="p-4">
-            <p className="text-sm mb-2">{moment.note}</p>
-            <p className="text-xs text-muted-foreground">{format(moment.date, 'PPPp')}</p>
+            <p className="text-sm mb-2">{moment.description}</p>
+            <p className="text-xs text-muted-foreground">
+              {(() => {
+                try {
+                  const date = new Date(moment.assetName);
+                  return format(date, 'PPPp');
+                } catch (error) {
+                  console.error('Error formatting date:', error);
+                  return 'Invalid date';
+                }
+              })()}
+            </p>
           </div>
         </Card>
       ))}

@@ -3,7 +3,11 @@ import { Calendar, Grid } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { UserDashboard } from '@/components/UserDashboard';
 
-export function Dashboard() {
+interface DashboardProps {
+  activeAddress: string | null;
+}
+
+export function Dashboard({ activeAddress }: DashboardProps) {
   const [view, setView] = useState<'grid' | 'calendar'>('grid');
 
   return (
@@ -30,7 +34,7 @@ export function Dashboard() {
         </div>
       </div>
 
-      <UserDashboard view={view} />
+      <UserDashboard view={view} activeAddress={activeAddress} />
     </div>
   );
 }
