@@ -17,11 +17,11 @@ function Homepage() {
 
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-background flex">
+      <div className="min-h-screen bg-background">
         {/* Vertical Navbar */}
         <nav
           className={cn(
-            'h-screen bg-card flex flex-col transition-all duration-300',
+            'fixed top-0 left-0 h-screen bg-card flex flex-col transition-all duration-300 z-50',
             isNavExpanded ? 'w-48' : 'w-12'
           )}
         >
@@ -89,7 +89,7 @@ function Homepage() {
         </nav>
 
         {/* Main Content */}
-        <main className="flex-1">
+        <main className={cn('transition-all duration-300', isNavExpanded ? 'ml-48' : 'ml-12')}>
           <div className="container mx-auto px-4 py-8">
             <Routes>
               <Route path="/" element={<Index activeAddress={activeAddress} />} />

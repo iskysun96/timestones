@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Loader2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -8,6 +8,7 @@ import { useSnackbar } from 'notistack';
 import { pinFileToIPFS, pinJSONToIPFS } from './utils/pinata';
 import { getAlgorandClient } from './utils/setupClients';
 import { useWallet } from '@txnlab/use-wallet-react';
+import { fetchDiaryAssets } from './utils/fetchDiaryAssets';
 
 interface IPFSData {
   name: string;
@@ -24,27 +25,64 @@ interface MomentCreatorProps {
   activeAddress: string | null;
 }
 
+type DiaryAsset = {
+  assetId: number;
+  url: string;
+  assetName: string;
+  unitName: string;
+  description: string;
+  assetType: string;
+  date: Date;
+};
+
 export function MomentCreator({ activeAddress }: MomentCreatorProps) {
   const [description, setDescription] = useState('');
   const [nftImage, setNftImage] = useState<File | null>(null);
   const [nftImageUrl, setNftImageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const connectButtonRef = useRef<HTMLButtonElement>(null);
+  const [diaryAssets, setDiaryAssets] = useState<DiaryAsset[]>([]);
+  const [assetsLoading, setAssetsLoading] = useState(false);
 
   const { enqueueSnackbar } = useSnackbar();
   const { transactionSigner } = useWallet();
 
   const today = new Date();
-  const formattedDate = today.toISOString();
-  const DateWithoutDashes = formattedDate.replace(/[-:T.Z]/g, '').substring(2, 8);
+  const dateOnly = today.toISOString().slice(0, 10); // 'yyyy-MM-dd'
+  const DateWithoutDashes = dateOnly.replace(/-/g, '').substring(2, 8);
 
   const algorandClient = getAlgorandClient();
+
+  useEffect(() => {
+    if (!activeAddress) {
+      setDiaryAssets([]);
+      return;
+    }
+    setAssetsLoading(true);
+    fetchDiaryAssets(activeAddress)
+      .then(setDiaryAssets)
+      .finally(() => setAssetsLoading(false));
+  }, [activeAddress]);
+
+  const hasUploadedToday = () => {
+    if (!Array.isArray(diaryAssets)) return false;
+    return diaryAssets.some(asset => {
+      const assetDate = new Date(asset.date);
+      return assetDate.toISOString().slice(0, 10) === dateOnly;
+    });
+  };
 
   const handleSubmit = async () => {
     if (!activeAddress) {
       promptWalletConnection();
       return;
     }
+
+    if (hasUploadedToday()) {
+      enqueueSnackbar('You can only upload one moment per day', { variant: 'warning' });
+      return;
+    }
+
     setLoading(true);
 
     if (!transactionSigner || !activeAddress) {
@@ -69,7 +107,7 @@ export function MomentCreator({ activeAddress }: MomentCreatorProps) {
       console.log('ipfsHash: ', ipfsHash);
 
       const ipfs_data: IPFSData = {
-        name: `${formattedDate}`,
+        name: `${dateOnly}`,
         standard: 'arc3',
         image: String(ipfsHash),
         image_mime_type: nftImage.type,
@@ -83,21 +121,24 @@ export function MomentCreator({ activeAddress }: MomentCreatorProps) {
 
       console.log(metadataRoot);
       metadataRootString = String(metadataRoot);
-    } catch (e: any) {
-      enqueueSnackbar(`Error during image upload to IPFS: ${e.message}`, { variant: 'error' });
+    } catch (e: unknown) {
+      enqueueSnackbar(
+        `Error during image upload to IPFS: ${e instanceof Error ? e.message : String(e)}`,
+        { variant: 'error' }
+      );
       setLoading(false);
       return;
     }
 
     console.log('metadataRoot: ', metadataRootString);
-    console.log('formattedDate: ', formattedDate);
+    console.log('formattedDate: ', dateOnly);
     console.log('DateWithoutDashes: ', DateWithoutDashes);
 
     try {
       const result = await algorandClient.send.assetCreate({
         sender: activeAddress,
         defaultFrozen: true,
-        assetName: `${formattedDate}`,
+        assetName: `${dateOnly}`,
         unitName: `pd${DateWithoutDashes}`,
         url: `ipfs://${metadataRootString}/#arc3`,
         total: 1n,
@@ -107,6 +148,11 @@ export function MomentCreator({ activeAddress }: MomentCreatorProps) {
       enqueueSnackbar(`Successfully Created Photo Diary with Asset ID: ${result?.assetId}`, {
         variant: 'success',
       });
+
+      // Clear sessionStorage cache and reload to trigger refetch in UserDashboard
+      sessionStorage.removeItem(`hasFetched_${activeAddress}`);
+      sessionStorage.removeItem(`diaryAssets_${activeAddress}`);
+      window.location.reload();
 
       setNftImageUrl('');
       setNftImage(null);
@@ -223,10 +269,14 @@ export function MomentCreator({ activeAddress }: MomentCreatorProps) {
             ) : (
               <Button
                 className="bg-accent text-accent-foreground hover:bg-accent/90"
-                disabled={!nftImage || !description.trim()}
+                disabled={!nftImage || !description.trim() || hasUploadedToday() || assetsLoading}
                 onClick={handleSubmit}
               >
-                Preserve this moment
+                {assetsLoading
+                  ? 'Checking...'
+                  : hasUploadedToday()
+                    ? 'Already uploaded today'
+                    : 'Preserve this moment'}
               </Button>
             )}
           </div>
