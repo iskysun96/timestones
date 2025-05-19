@@ -65,6 +65,12 @@ export function MomentCreator({ activeAddress }: MomentCreatorProps) {
   }, [activeAddress]);
 
   const hasUploadedToday = () => {
+    // Bypass restriction in development mode
+    if (import.meta.env.VITE_BYPASS_DAILY_LIMIT === 'true') {
+      console.log('Development mode: Bypassing daily upload restriction');
+      return false;
+    }
+
     if (!Array.isArray(diaryAssets)) return false;
     return diaryAssets.some(asset => {
       const assetDate = new Date(asset.date);
@@ -75,6 +81,7 @@ export function MomentCreator({ activeAddress }: MomentCreatorProps) {
   const handleSubmit = async () => {
     if (!activeAddress) {
       promptWalletConnection();
+      enqueueSnackbar('Please connect wallet first', { variant: 'warning' });
       return;
     }
 
@@ -84,13 +91,6 @@ export function MomentCreator({ activeAddress }: MomentCreatorProps) {
     }
 
     setLoading(true);
-
-    if (!transactionSigner || !activeAddress) {
-      enqueueSnackbar('Please connect wallet first', { variant: 'warning' });
-      setLoading(false);
-      return;
-    }
-    console.log('algorand client: ', algorandClient);
 
     algorandClient.account.setDefaultSigner(transactionSigner);
 
@@ -104,7 +104,6 @@ export function MomentCreator({ activeAddress }: MomentCreatorProps) {
 
     try {
       const ipfsHash = await pinFileToIPFS(nftImage);
-      console.log('ipfsHash: ', ipfsHash);
 
       const ipfs_data: IPFSData = {
         name: `${dateOnly}`,
@@ -130,12 +129,9 @@ export function MomentCreator({ activeAddress }: MomentCreatorProps) {
       return;
     }
 
-    console.log('metadataRoot: ', metadataRootString);
-    console.log('formattedDate: ', dateOnly);
-    console.log('DateWithoutDashes: ', DateWithoutDashes);
-
+    let result;
     try {
-      const result = await algorandClient.send.assetCreate({
+      result = await algorandClient.send.assetCreate({
         sender: activeAddress,
         defaultFrozen: true,
         assetName: `${dateOnly}`,
@@ -144,23 +140,30 @@ export function MomentCreator({ activeAddress }: MomentCreatorProps) {
         total: 1n,
         decimals: 0,
       });
-
-      enqueueSnackbar(`Successfully Created Photo Diary with Asset ID: ${result?.assetId}`, {
-        variant: 'success',
-      });
-
-      // Clear sessionStorage cache and reload to trigger refetch in UserDashboard
-      sessionStorage.removeItem(`hasFetched_${activeAddress}`);
-      sessionStorage.removeItem(`diaryAssets_${activeAddress}`);
-      window.location.reload();
+      console.log('asset create result:', result);
 
       setNftImageUrl('');
       setNftImage(null);
       setDescription('');
     } catch (error) {
       console.error(error);
+      enqueueSnackbar(
+        `Error during asset creation: ${error instanceof Error ? error.message : String(error)}`,
+        {
+          variant: 'error',
+        }
+      );
       setLoading(false);
+      return;
     }
+    enqueueSnackbar(`Successfully Created Photo Diary with Asset ID: ${result?.assetId}`, {
+      variant: 'success',
+    });
+
+    // Clear sessionStorage cache and reload to trigger refetch in UserDashboard
+    sessionStorage.removeItem(`hasFetched_${activeAddress}`);
+    sessionStorage.removeItem(`diaryAssets_${activeAddress}`);
+    window.location.reload();
     setLoading(false);
   };
 
